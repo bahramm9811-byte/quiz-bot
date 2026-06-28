@@ -8,22 +8,13 @@ QUESTIONS_FILE = os.path.join(os.path.dirname(__file__), "questions.txt")
 
 
 def load_questions(filepath: str) -> list[dict]:
-    """
-    فایل متنی با فرمت زیر رو می‌خونه:
-        سوال: / پرسش: / س: / سوال ۱: / ۱- / 1-  → شروع سوال
-        جواب: / پاسخ: / ج: / پ:               → شروع جواب
-    شماره‌گذاری و مترادف‌ها همه قبوله.
-    خطوط خالی بین سوال‌ها مجازه.
-    """
-    # پترن تشخیص شروع سوال (با یا بدون ** markdown)
     Q_PATTERN = re.compile(
         r'^\*{0,2}(?:'
-        r'(?:سوال|پرسش|س)[\s\d\u06F0-\u06F9]*[:.\-–]'  # سوال: / پرسش: / س: / سوال ۱:
-        r'|[\d\u06F0-\u06F9]+[\s]*[.\-–\)]\s*'           # 1- / ۱. / ۱)
+        r'(?:سوال|پرسش|س)[\s\d\u06F0-\u06F9]*[:.\-–]'
+        r'|[\d\u06F0-\u06F9]+[\s]*[.\-–\)]\s*'
         r')\*{0,2}',
         re.UNICODE
     )
-    # پترن تشخیص شروع جواب (با یا بدون ** markdown)
     A_PATTERN = re.compile(
         r'^\*{0,2}(?:جواب|پاسخ|ج|پ)[\s\d\u06F0-\u06F9]*[:.\-–]\*{0,2}',
         re.UNICODE
@@ -34,7 +25,6 @@ def load_questions(filepath: str) -> list[dict]:
     current_a = None
 
     def strip_prefix(line: str, pattern: re.Pattern) -> str:
-        """پیشوند کلیدواژه رو حذف می‌کنه"""
         m = pattern.match(line)
         return line[m.end():].strip() if m else line.strip()
 
@@ -56,64 +46,68 @@ def load_questions(filepath: str) -> list[dict]:
     return qa_list
 
 
-# بارگذاری سوالات موقع اجرا
 try:
     qa_list = load_questions(QUESTIONS_FILE)
     print(f"✅ {len(qa_list)} سوال بارگذاری شد.")
 except FileNotFoundError:
-    print(f"⚠️  فایل {QUESTIONS_FILE} پیدا نشد. از لیست پیش‌فرض استفاده می‌شود.")
+    print(f"⚠️  فایل {QUESTIONS_FILE} پیدا نشد.")
     qa_list = [
         {"q": "سوال نمونه: این یک سوال آزمایشی است.", "a": "این یک پاسخ آزمایشی است."},
     ]
 
-# user_data[user_id] = {"index": int, "answer_shown": bool}
+# user_data[user_id] = {"index": int}
 user_data: dict = {}
 
 
-def get_keyboard(answer_shown: bool) -> InlineKeyboardMarkup:
-    if answer_shown:
-        buttons = [[InlineKeyboardButton("➡️ سوال بعدی", callback_data="next")]]
-    else:
-        buttons = [
-            [
-                InlineKeyboardButton("💡 نمایش پاسخ", callback_data="show_answer"),
-                InlineKeyboardButton("➡️ سوال بعدی", callback_data="next"),
-            ]
-        ]
+def escape_md2(text: str) -> str:
+    """کاراکترهای خاص MarkdownV2 رو escape می‌کنه"""
+    special = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(r'([' + re.escape(special) + r'])', r'\\\1', text)
+
+
+def get_keyboard(index: int) -> InlineKeyboardMarkup:
+    """کیبورد فقط با دکمه سوال بعدی"""
+    buttons = [[InlineKeyboardButton("➡️ سوال بعدی", callback_data=f"next:{index}")]]
     return InlineKeyboardMarkup(buttons)
 
 
-def format_question(index: int, show_answer: bool = False) -> str:
+def format_question(index: int) -> str:
+    """سوال رو با پاسخ spoiler فرمت می‌کنه"""
     item = qa_list[index]
     total = len(qa_list)
-    text = f"📚 *{index + 1} از {total}*\n\n{item['q']}"
-    if show_answer:
-        text += f"\n\n✅ *پاسخ:* {item['a']}"
+
+    q_text = escape_md2(item['q'])
+    a_text = escape_md2(item['a'])
+
+    text = (
+        f"📚 *{escape_md2(str(index + 1))} از {escape_md2(str(total))}*\n\n"
+        f"❓ {q_text}\n\n"
+        f"💡 *نکته:* ||{a_text}||"
+    )
     return text
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    user_data[user_id] = {"index": 0, "answer_shown": False}
+    user_data[user_id] = {"index": 0}
     await update.message.reply_text(
         format_question(0),
-        parse_mode="Markdown",
-        reply_markup=get_keyboard(False),
+        parse_mode="MarkdownV2",
+        reply_markup=get_keyboard(0),
     )
 
 
 async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    user_data[user_id] = {"index": 0, "answer_shown": False}
+    user_data[user_id] = {"index": 0}
     await update.message.reply_text(
-        "🔄 از ابتدا شروع شد!\n\n" + format_question(0),
-        parse_mode="Markdown",
-        reply_markup=get_keyboard(False),
+        "🔄 *از ابتدا شروع شد\\!*\n\n" + format_question(0),
+        parse_mode="MarkdownV2",
+        reply_markup=get_keyboard(0),
     )
 
 
 async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """دستور /reload — سوالات رو دوباره از فایل می‌خونه بدون نیاز به ریستارت بات"""
     global qa_list
     try:
         qa_list = load_questions(QUESTIONS_FILE)
@@ -128,33 +122,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
 
     if user_id not in user_data:
-        user_data[user_id] = {"index": 0, "answer_shown": False}
+        user_data[user_id] = {"index": 0}
 
-    state = user_data[user_id]
     action = query.data
 
-    if action == "show_answer":
-        state["answer_shown"] = True
-        await query.edit_message_text(
-            format_question(state["index"], show_answer=True),
-            parse_mode="Markdown",
-            reply_markup=get_keyboard(True),
-        )
+    if action.startswith("next:"):
+        # index رو از callback_data می‌خونیم تا مطمئن باشیم درسته
+        current_index = int(action.split(":")[1])
+        next_index = current_index + 1
 
-    elif action == "next":
-        next_index = state["index"] + 1
         if next_index >= len(qa_list):
-            await query.edit_message_text(
-                f"🎉 *تبریک!*\nهمه {len(qa_list)} سوال تموم شد.\n\nبرای شروع دوباره /restart بزن.",
-                parse_mode="Markdown",
+            # دکمه سوال قبلی رو غیرفعال کن (فقط متن عوض کن، پیام جدید نفرست)
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text(
+                f"🎉 *تبریک\\!*\nهمه {escape_md2(str(len(qa_list)))} سوال تموم شد\\!\n\nبرای شروع دوباره /restart بزن\\.",
+                parse_mode="MarkdownV2",
             )
             return
-        state["index"] = next_index
-        state["answer_shown"] = False
-        await query.edit_message_text(
+
+        user_data[user_id]["index"] = next_index
+
+        # دکمه سوال قبلی رو حذف کن (نشون بده دیگه فعال نیست)
+        await query.edit_message_reply_markup(reply_markup=None)
+
+        # پیام جدید بفرست (روی هم انباشته می‌شن)
+        await query.message.reply_text(
             format_question(next_index),
-            parse_mode="Markdown",
-            reply_markup=get_keyboard(False),
+            parse_mode="MarkdownV2",
+            reply_markup=get_keyboard(next_index),
         )
 
 
