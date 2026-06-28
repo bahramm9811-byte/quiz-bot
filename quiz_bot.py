@@ -155,6 +155,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await cancel_timer(user_id)
     user_sessions[user_id] = {"course": None, "chapter": None, "index": 0, "timer_task": None}
+    name = update.effective_user.first_name or "دوست"
+    await update.message.reply_text(
+        f"سلام {escape_md2(name)} 👋\n\n"
+        f"🎓 *به بات مرور درس خوش اومدی\\!*\n\n"
+        f"از منوی زیر یه درس انتخاب کن و شروع کن\\.\n"
+        f"برای هر سوال پاسخ رو با کلیک روی متن خاکستری ببین 💡",
+        parse_mode="MarkdownV2"
+    )
     await show_courses(update, context)
 
 
